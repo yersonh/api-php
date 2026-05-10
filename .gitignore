@@ -1,0 +1,21 @@
+# Wallet files
+*.p12
+*.pem
+*.sso
+*.jks
+wallet/
+
+# Environment
+.env
+config-local.php
+
+# Dependencies
+vendor/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
