@@ -14,5 +14,7 @@ echo json_encode([
         'GET /reportes.php',
         'GET /ventas-grafico',
         'GET /ventas-grafico.php',
+        'GET /reportes-dashboard',
+        'GET /reportes-dashboard.php',
     ],
 ], JSON_UNESCAPED_UNICODE);
