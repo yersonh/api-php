@@ -215,15 +215,28 @@ WHERE ROWNUM <= 3");
 
     $diaMasVendidoRow = fetchOne($conn, "SELECT *
 FROM (
-    SELECT TO_CHAR(TRUNC(FECHA), 'DD Mon YYYY') AS FECHA,
-    NVL(SUM(TOTAL), 0) AS TOTAL,
-    COUNT(ID_VENTA) AS VENTAS
+    SELECT TO_CHAR(TRUNC(V.FECHA), 'DD Mon YYYY') AS FECHA,
+    NVL(SUM(V.TOTAL), 0) AS TOTAL,
+    COUNT(V.ID_VENTA) AS VENTAS
     FROM VENTA V
     WHERE $ventaWhere
-    GROUP BY TRUNC(FECHA)
-    ORDER BY SUM(TOTAL) DESC
+    GROUP BY TRUNC(V.FECHA)
+    ORDER BY SUM(V.TOTAL) DESC
 )
 WHERE ROWNUM = 1");
+
+    if ($diaMasVendidoRow === null && $periodo !== 'todo') {
+        $diaMasVendidoRow = fetchOne($conn, "SELECT *
+FROM (
+    SELECT TO_CHAR(TRUNC(V.FECHA), 'DD Mon YYYY') AS FECHA,
+    NVL(SUM(V.TOTAL), 0) AS TOTAL,
+    COUNT(V.ID_VENTA) AS VENTAS
+    FROM VENTA V
+    GROUP BY TRUNC(V.FECHA)
+    ORDER BY SUM(V.TOTAL) DESC
+)
+WHERE ROWNUM = 1");
+    }
 
     oci_close($conn);
 
