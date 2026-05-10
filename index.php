@@ -16,5 +16,12 @@ echo json_encode([
         'GET /ventas-grafico.php',
         'GET /reportes-dashboard',
         'GET /reportes-dashboard.php',
+        'GET /registro?tipo=proveedores',
+        'GET /registro?tipo=productos',
+        'GET /registro?tipo=categorias',
+        'POST /registro?tipo=proveedores&accion=crear',
+        'POST /registro?tipo=proveedores&accion=actualizar',
+        'POST /registro?tipo=productos&accion=crear',
+        'POST /registro?tipo=productos&accion=actualizar',
     ],
 ], JSON_UNESCAPED_UNICODE);

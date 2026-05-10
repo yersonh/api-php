@@ -37,6 +37,11 @@ if ($uri === '/reportes-dashboard' && $method === 'GET') {
     exit;
 }
 
+if ($uri === '/registro' && ($method === 'GET' || $method === 'POST')) {
+    require __DIR__ . '/registro.php';
+    exit;
+}
+
 if ($uri === '/') {
     echo json_encode([
         "exito" => true,
