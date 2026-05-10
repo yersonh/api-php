@@ -92,6 +92,7 @@ WHERE LOWER(USERNAME) = LOWER(:username)";
                 'message' => 'Login correcto',
                 'user' => [
                     'id_usuario' => $row['ID_USUARIO'],
+                    'id_tipo' => $row['ID_TIPO'] ?? null,
                     'username' => $row['USERNAME'],
                     'estado' => $row['ESTADO']
                 ]
@@ -119,6 +120,5 @@ WHERE LOWER(USERNAME) = LOWER(:username)";
         'oracle_error' => $e->getMessage()
     ], JSON_UNESCAPED_UNICODE);
 }
-
 
 
