@@ -59,16 +59,6 @@ function variation($current, $previous) {
 }
 
 function periodConfig($periodo) {
-    if ($periodo === 'todo') {
-        return [
-            'label' => 'Todo',
-            'current_start' => null,
-            'current_end' => null,
-            'previous_start' => null,
-            'previous_end' => null,
-        ];
-    }
-
     if ($periodo === 'hoy') {
         return [
             'label' => 'Hoy',
@@ -91,7 +81,7 @@ function periodConfig($periodo) {
 
     if ($periodo === 'anio') {
         return [
-            'label' => 'Este ano',
+            'label' => 'Este año',
             'current_start' => "TRUNC(SYSDATE, 'YYYY')",
             'current_end' => "ADD_MONTHS(TRUNC(SYSDATE, 'YYYY'), 12)",
             'previous_start' => "ADD_MONTHS(TRUNC(SYSDATE, 'YYYY'), -12)",
@@ -117,7 +107,7 @@ function dateWhere($alias, $config) {
 
 try {
     $periodo = strtolower(trim($_GET['periodo'] ?? 'mes'));
-    if (!in_array($periodo, ['todo', 'hoy', 'semana', 'mes', 'anio'], true)) {
+    if (!in_array($periodo, ['hoy', 'semana', 'mes', 'anio'], true)) {
         $periodo = 'mes';
     }
     $config = periodConfig($periodo);
@@ -225,7 +215,7 @@ FROM (
 )
 WHERE ROWNUM = 1");
 
-    if ($diaMasVendidoRow === null && $periodo !== 'todo') {
+    if ($diaMasVendidoRow === null) {
         $diaMasVendidoRow = fetchOne($conn, "SELECT *
 FROM (
     SELECT TO_CHAR(TRUNC(V.FECHA), 'DD Mon YYYY') AS FECHA,
