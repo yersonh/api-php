@@ -58,28 +58,95 @@ function variation($current, $previous) {
     return round((($current - $previous) / $previous) * 100, 1);
 }
 
+function periodConfig($periodo) {
+    if ($periodo === 'todo') {
+        return [
+            'label' => 'Todo',
+            'current_start' => null,
+            'current_end' => null,
+            'previous_start' => null,
+            'previous_end' => null,
+        ];
+    }
+
+    if ($periodo === 'hoy') {
+        return [
+            'label' => 'Hoy',
+            'current_start' => 'TRUNC(SYSDATE)',
+            'current_end' => 'TRUNC(SYSDATE) + 1',
+            'previous_start' => 'TRUNC(SYSDATE) - 1',
+            'previous_end' => 'TRUNC(SYSDATE)',
+        ];
+    }
+
+    if ($periodo === 'semana') {
+        return [
+            'label' => 'Esta semana',
+            'current_start' => "TRUNC(SYSDATE, 'IW')",
+            'current_end' => "TRUNC(SYSDATE, 'IW') + 7",
+            'previous_start' => "TRUNC(SYSDATE, 'IW') - 7",
+            'previous_end' => "TRUNC(SYSDATE, 'IW')",
+        ];
+    }
+
+    if ($periodo === 'anio') {
+        return [
+            'label' => 'Este ano',
+            'current_start' => "TRUNC(SYSDATE, 'YYYY')",
+            'current_end' => "ADD_MONTHS(TRUNC(SYSDATE, 'YYYY'), 12)",
+            'previous_start' => "ADD_MONTHS(TRUNC(SYSDATE, 'YYYY'), -12)",
+            'previous_end' => "TRUNC(SYSDATE, 'YYYY')",
+        ];
+    }
+
+    return [
+        'label' => 'Este mes',
+        'current_start' => "TRUNC(SYSDATE, 'MM')",
+        'current_end' => "ADD_MONTHS(TRUNC(SYSDATE, 'MM'), 1)",
+        'previous_start' => "ADD_MONTHS(TRUNC(SYSDATE, 'MM'), -1)",
+        'previous_end' => "TRUNC(SYSDATE, 'MM')",
+    ];
+}
+
+function dateWhere($alias, $config) {
+    if ($config['current_start'] === null || $config['current_end'] === null) {
+        return '1 = 1';
+    }
+    return "$alias.FECHA >= {$config['current_start']} AND $alias.FECHA < {$config['current_end']}";
+}
+
 try {
+    $periodo = strtolower(trim($_GET['periodo'] ?? 'mes'));
+    if (!in_array($periodo, ['todo', 'hoy', 'semana', 'mes', 'anio'], true)) {
+        $periodo = 'mes';
+    }
+    $config = periodConfig($periodo);
+    $ventaWhere = dateWhere('V', $config);
+    $compraWhere = $config['current_start'] === null
+        ? '1 = 1'
+        : "CP.FECHA >= {$config['current_start']} AND CP.FECHA < {$config['current_end']}";
+
     $conn = getConnection();
 
-    $currentRow = fetchOne($conn, "SELECT NVL(SUM(TOTAL), 0) AS TOTAL
-FROM VENTA
-WHERE FECHA >= TRUNC(SYSDATE, 'MM')
-AND FECHA < ADD_MONTHS(TRUNC(SYSDATE, 'MM'), 1)");
-    $previousRow = fetchOne($conn, "SELECT NVL(SUM(TOTAL), 0) AS TOTAL
-FROM VENTA
-WHERE FECHA >= ADD_MONTHS(TRUNC(SYSDATE, 'MM'), -1)
-AND FECHA < TRUNC(SYSDATE, 'MM')");
+    $currentRow = fetchOne($conn, "SELECT NVL(SUM(V.TOTAL), 0) AS TOTAL
+FROM VENTA V
+WHERE $ventaWhere");
+    $previousRow = $config['previous_start'] === null
+        ? ['TOTAL' => 0]
+        : fetchOne($conn, "SELECT NVL(SUM(V.TOTAL), 0) AS TOTAL
+FROM VENTA V
+WHERE V.FECHA >= {$config['previous_start']}
+AND V.FECHA < {$config['previous_end']}");
 
     $ventasTotales = (float)($currentRow['TOTAL'] ?? 0);
     $ventasAnteriores = (float)($previousRow['TOTAL'] ?? 0);
 
-    $ventasPorDiaRows = fetchAll($conn, "SELECT TO_CHAR(TRUNC(FECHA), 'DY') AS LABEL,
-NVL(SUM(TOTAL), 0) AS TOTAL,
-TRUNC(FECHA) AS ORDEN
-FROM VENTA
-WHERE FECHA >= TRUNC(SYSDATE) - 6
-AND FECHA < TRUNC(SYSDATE) + 1
-GROUP BY TRUNC(FECHA), TO_CHAR(TRUNC(FECHA), 'DY')
+    $ventasPorDiaRows = fetchAll($conn, "SELECT TO_CHAR(TRUNC(V.FECHA), 'DD/MM') AS LABEL,
+NVL(SUM(V.TOTAL), 0) AS TOTAL,
+TRUNC(V.FECHA) AS ORDEN
+FROM VENTA V
+WHERE $ventaWhere
+GROUP BY TRUNC(V.FECHA), TO_CHAR(TRUNC(V.FECHA), 'DD/MM')
 ORDER BY ORDEN");
 
     $ventasPorDia = array_map(function ($row) {
@@ -93,7 +160,9 @@ ORDER BY ORDEN");
 FROM (
     SELECT P.NOMBRE AS NOMBRE, SUM(DV.CANTIDAD) AS CANTIDAD
     FROM DETALLE_VENTA DV
+    INNER JOIN VENTA V ON V.ID_VENTA = DV.ID_VENTA
     INNER JOIN PRODUCTO P ON P.ID_PRODUCTO = DV.ID_PRODUCTO
+    WHERE $ventaWhere
     GROUP BY P.NOMBRE
     ORDER BY SUM(DV.CANTIDAD) DESC
 )
@@ -113,6 +182,7 @@ FROM (
     FROM VENTA V
     INNER JOIN CLIENTE C ON C.ID_CLIENTE = V.ID_CLIENTE
     INNER JOIN PERSONA PER ON PER.ID_PERSONA = C.ID_PERSONA
+    WHERE $ventaWhere
     GROUP BY TRIM(PER.NOMBRES || ' ' || PER.APELLIDOS)
     ORDER BY COUNT(V.ID_VENTA) DESC
 )
@@ -130,6 +200,7 @@ FROM (
     SELECT P.NOMBRE AS NOMBRE, COUNT(CP.ID_COMPRA) AS COMPRAS
     FROM COMPRA_PROVEEDOR CP
     INNER JOIN PROVEEDOR P ON P.ID_PROVEEDOR = CP.ID_PROVEEDOR
+    WHERE $compraWhere
     GROUP BY P.NOMBRE
     ORDER BY COUNT(CP.ID_COMPRA) DESC
 )
@@ -147,7 +218,8 @@ FROM (
     SELECT TO_CHAR(TRUNC(FECHA), 'DD Mon YYYY') AS FECHA,
     NVL(SUM(TOTAL), 0) AS TOTAL,
     COUNT(ID_VENTA) AS VENTAS
-    FROM VENTA
+    FROM VENTA V
+    WHERE $ventaWhere
     GROUP BY TRUNC(FECHA)
     ORDER BY SUM(TOTAL) DESC
 )
@@ -159,6 +231,8 @@ WHERE ROWNUM = 1");
         'success' => true,
         'message' => 'Reportes cargados',
         'data' => [
+            'periodo' => $periodo,
+            'periodo_label' => $config['label'],
             'ventas_totales' => $ventasTotales,
             'variacion_ventas' => variation($ventasTotales, $ventasAnteriores),
             'ventas_por_dia' => $ventasPorDia,
