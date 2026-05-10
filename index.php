@@ -12,5 +12,7 @@ echo json_encode([
         'POST /login.php',
         'GET /reportes',
         'GET /reportes.php',
+        'GET /ventas-grafico',
+        'GET /ventas-grafico.php',
     ],
 ], JSON_UNESCAPED_UNICODE);

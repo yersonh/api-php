@@ -27,6 +27,11 @@ if ($uri === '/reportes' && $method === 'GET') {
     exit;
 }
 
+if ($uri === '/ventas-grafico' && $method === 'GET') {
+    require __DIR__ . '/ventas-grafico.php';
+    exit;
+}
+
 if ($uri === '/') {
     echo json_encode([
         "exito" => true,
