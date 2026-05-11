@@ -49,6 +49,8 @@ try {
         handleTomarPedido($conn, $idUsuario);
     } elseif ($method === 'POST' && $accion === 'estado_entrega') {
         handleEstadoEntrega($conn, $idUsuario);
+    } elseif ($method === 'POST' && $accion === 'iniciar_entrega') {
+        handleIniciarEntrega($conn, $idUsuario);
     } else {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'Acción no válida']);
@@ -236,12 +238,76 @@ function handleUbicacion($conn, int $idUsuario): void {
     echo json_encode(['success' => true, 'message' => 'Ubicación actualizada']);
 }
 
+// ─── Crear entrega si no existe (pedidos asignados sin ENTREGA_PEDIDO) ────────
+function handleIniciarEntrega($conn, int $idUsuario): void {
+    $data     = json_decode(file_get_contents('php://input'), true);
+    $idPedido = (int) ($data['id_pedido'] ?? 0);
+
+    if (!$idPedido) {
+        echo json_encode(['success' => false, 'message' => 'ID de pedido inválido']);
+        return;
+    }
+
+    $stmtR = oci_parse($conn, 'SELECT ID_REPARTIDOR FROM REPARTIDOR WHERE ID_USUARIO = :id_usuario');
+    oci_bind_by_name($stmtR, ':id_usuario', $idUsuario);
+    oci_execute($stmtR);
+    $rowR = oci_fetch_assoc($stmtR);
+    oci_free_statement($stmtR);
+
+    if (!$rowR) {
+        echo json_encode(['success' => false, 'message' => 'Repartidor no encontrado']);
+        return;
+    }
+    $idRepartidor = (int) $rowR['ID_REPARTIDOR'];
+
+    // Verificar si ya existe
+    $stmtC = oci_parse($conn,
+        'SELECT ID_ENTREGA FROM ENTREGA_PEDIDO WHERE ID_PEDIDO = :id_pedido AND ID_REPARTIDOR = :id_repartidor'
+    );
+    oci_bind_by_name($stmtC, ':id_pedido',     $idPedido);
+    oci_bind_by_name($stmtC, ':id_repartidor', $idRepartidor);
+    oci_execute($stmtC);
+    $rowC = oci_fetch_assoc($stmtC);
+    oci_free_statement($stmtC);
+
+    if ($rowC) {
+        // Ya existe — retornar el id_entrega existente
+        echo json_encode(['success' => true, 'id_entrega' => (int) $rowC['ID_ENTREGA'], 'message' => 'Ya existe']);
+        return;
+    }
+
+    // Crear nueva entrega
+    $stmtE = oci_parse($conn,
+        'INSERT INTO ENTREGA_PEDIDO (ID_ENTREGA, ID_PEDIDO, ID_REPARTIDOR, ESTADO_ENTREGA, FECHA_ESTADO)
+         VALUES (SEQ_ENTREGA_PEDIDO.NEXTVAL, :id_pedido, :id_repartidor, :estado, SYSTIMESTAMP)'
+    );
+    $estado = 'PENDIENTE';
+    oci_bind_by_name($stmtE, ':id_pedido',     $idPedido);
+    oci_bind_by_name($stmtE, ':id_repartidor', $idRepartidor);
+    oci_bind_by_name($stmtE, ':estado',        $estado);
+    oci_execute($stmtE);
+    oci_free_statement($stmtE);
+
+    // Obtener el ID recién creado
+    $stmtLast = oci_parse($conn,
+        'SELECT ID_ENTREGA FROM ENTREGA_PEDIDO WHERE ID_PEDIDO = :id_pedido AND ID_REPARTIDOR = :id_repartidor'
+    );
+    oci_bind_by_name($stmtLast, ':id_pedido',     $idPedido);
+    oci_bind_by_name($stmtLast, ':id_repartidor', $idRepartidor);
+    oci_execute($stmtLast);
+    $rowLast = oci_fetch_assoc($stmtLast);
+    oci_free_statement($stmtLast);
+
+    echo json_encode(['success' => true, 'id_entrega' => (int) $rowLast['ID_ENTREGA'], 'message' => 'Entrega iniciada']);
+}
+
 // ─── Actualizar estado de entrega ────────────────────────────────────────────
 function handleEstadoEntrega($conn, int $idUsuario): void {
     $data          = json_decode(file_get_contents('php://input'), true);
     $idEntrega     = (int) ($data['id_entrega']     ?? 0);
     $estadoEntrega = trim($data['estado_entrega']   ?? '');
     $notas         = trim($data['notas']            ?? '');
+    $firma         = trim($data['firma']            ?? '');  // base64 PNG de la firma
 
     if (!$idEntrega || !$estadoEntrega) {
         echo json_encode(['success' => false, 'message' => 'Datos incompletos']);
@@ -249,13 +315,17 @@ function handleEstadoEntrega($conn, int $idUsuario): void {
     }
 
     $sql = "UPDATE ENTREGA_PEDIDO
-            SET ESTADO_ENTREGA = :estado, NOTAS = :notas, FECHA_ESTADO = SYSTIMESTAMP
+            SET ESTADO_ENTREGA = :estado,
+                NOTAS          = :notas,
+                FIRMA_RECEPTOR = :firma,
+                FECHA_ESTADO   = SYSTIMESTAMP
             WHERE ID_ENTREGA = :id_entrega
               AND ID_REPARTIDOR = (SELECT ID_REPARTIDOR FROM REPARTIDOR WHERE ID_USUARIO = :id_usuario)";
 
     $stmt = oci_parse($conn, $sql);
     oci_bind_by_name($stmt, ':estado',     $estadoEntrega);
     oci_bind_by_name($stmt, ':notas',      $notas);
+    oci_bind_by_name($stmt, ':firma',      $firma,   -1, SQLT_CLOB);
     oci_bind_by_name($stmt, ':id_entrega', $idEntrega);
     oci_bind_by_name($stmt, ':id_usuario', $idUsuario);
     oci_execute($stmt);
