@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/database.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -106,13 +106,9 @@ ORDER BY NOMBRE");
         $rows = fetchAll($conn, "SELECT P.ID_PRODUCTO, P.NOMBRE, P.CODIGO, P.DESCRIPCION, P.PRECIO,
 P.ESTADO, P.ID_CATEGORIA,
 (SELECT C.NOMBRE FROM CATEGORIA_PRODUCTO C WHERE C.ID_CATEGORIA = P.ID_CATEGORIA) AS CATEGORIA,
-NVL((SELECT SUM(DCP.CANTIDAD)
-    FROM DETALLE_COMPRA_PROVEEDOR DCP
-    WHERE DCP.ID_PRODUCTO = P.ID_PRODUCTO), 0)
--
-NVL((SELECT SUM(DV.CANTIDAD)
-    FROM DETALLE_VENTA DV
-    WHERE DV.ID_PRODUCTO = P.ID_PRODUCTO), 0) AS STOCK
+NVL((SELECT MAX(I.STOCK_TOTAL)
+    FROM MV_VISTA_INVENTARIO I
+    WHERE I.ID_PRODUCTO = P.ID_PRODUCTO), 0) AS STOCK
 FROM PRODUCTO P
 ORDER BY P.NOMBRE");
         oci_close($conn);
@@ -223,3 +219,4 @@ WHERE ID_PRODUCTO = :id");
     }
     respond(false, 'Error en registro', ['error' => $e->getMessage()], 500);
 }
+
