@@ -377,9 +377,33 @@ function handleEstadoEntrega($conn, int $idUsuario): void {
     $afectadas = oci_num_rows($stmt);
     oci_free_statement($stmt);
 
-    if ($afectadas > 0) {
-        echo json_encode(['success' => true, 'message' => 'Estado actualizado']);
-    } else {
+    if ($afectadas === 0) {
         echo json_encode(['success' => false, 'message' => 'Fila no encontrada: id_entrega=' . $idEntrega]);
+        return;
     }
+
+    // Sincronizar PEDIDO.ID_ESTADO según el estado de entrega
+    $mapaEstados = [
+        'PENDIENTE'    => 1,
+        'EN_CAMINO'    => 3,
+        'ENTREGADO'    => 4,
+        'NO_ENTREGADO' => 5,
+    ];
+
+    if (isset($mapaEstados[$estadoEntrega])) {
+        $idEstadoPedido = $mapaEstados[$estadoEntrega];
+        $stmtP = oci_parse($conn,
+            'UPDATE PEDIDO
+             SET ID_ESTADO = :id_estado
+             WHERE ID_PEDIDO = (
+                 SELECT ID_PEDIDO FROM ENTREGA_PEDIDO WHERE ID_ENTREGA = :id_entrega
+             )'
+        );
+        oci_bind_by_name($stmtP, ':id_estado', $idEstadoPedido);
+        oci_bind_by_name($stmtP, ':id_entrega', $idEntrega);
+        oci_execute($stmtP);
+        oci_free_statement($stmtP);
+    }
+
+    echo json_encode(['success' => true, 'message' => 'Estado actualizado']);
 }
