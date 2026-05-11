@@ -75,6 +75,17 @@ function refreshInventoryView($conn) {
     }
 }
 
+function boolEstado($value) {
+    if (is_bool($value)) {
+        return $value ? 1 : 0;
+    }
+    if (is_numeric($value)) {
+        return ((int)$value) === 1 ? 1 : 0;
+    }
+    $text = strtoupper(trim((string)$value));
+    return in_array($text, ['1', 'TRUE', 'ACTIVO', 'SI', 'YES'], true) ? 1 : 0;
+}
+
 try {
     $conn = getConnection();
     $method = $_SERVER['REQUEST_METHOD'];
@@ -147,7 +158,7 @@ ORDER BY P.NOMBRE");
         $direccion = trim($data['direccion'] ?? '');
         $telefono = trim($data['telefono'] ?? '');
         $correo = trim($data['correo'] ?? '');
-        $estado = trim($data['estado'] ?? 'ACTIVO');
+        $estado = boolEstado($data['estado'] ?? true);
 
         if ($nombre === '') {
             respond(false, 'El nombre del proveedor es requerido', null, 422);
@@ -185,7 +196,7 @@ WHERE ID_PROVEEDOR = :id");
         $codigo = trim($data['codigo'] ?? '');
         $descripcion = trim($data['descripcion'] ?? '');
         $precio = (float)($data['precio'] ?? 0);
-        $estado = trim($data['estado'] ?? 'ACTIVO');
+        $estado = boolEstado($data['estado'] ?? true);
         $idCategoria = (int)($data['id_categoria'] ?? 0);
         $stockInicial = max(0, (int)($data['stock_inicial'] ?? 0));
         $idProveedor = (int)($data['id_proveedor'] ?? 0);
