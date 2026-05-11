@@ -58,7 +58,7 @@ function variation($current, $previous) {
     return round((($current - $previous) / $previous) * 100, 1);
 }
 
-function periodConfig($periodo) {
+function periodConfig($periodo, $desde = null, $hasta = null) {
     if ($periodo === 'hoy') {
         return [
             'label' => 'Hoy',
@@ -79,6 +79,26 @@ function periodConfig($periodo) {
         ];
     }
 
+    if ($periodo === 'semana_pasada') {
+        return [
+            'label' => 'Semana pasada',
+            'current_start' => "TRUNC(SYSDATE, 'IW') - 7",
+            'current_end' => "TRUNC(SYSDATE, 'IW')",
+            'previous_start' => "TRUNC(SYSDATE, 'IW') - 14",
+            'previous_end' => "TRUNC(SYSDATE, 'IW') - 7",
+        ];
+    }
+
+    if ($periodo === 'mes_pasado') {
+        return [
+            'label' => 'Mes pasado',
+            'current_start' => "ADD_MONTHS(TRUNC(SYSDATE, 'MM'), -1)",
+            'current_end' => "TRUNC(SYSDATE, 'MM')",
+            'previous_start' => "ADD_MONTHS(TRUNC(SYSDATE, 'MM'), -2)",
+            'previous_end' => "ADD_MONTHS(TRUNC(SYSDATE, 'MM'), -1)",
+        ];
+    }
+
     if ($periodo === 'anio') {
         return [
             'label' => 'Este año',
@@ -86,6 +106,19 @@ function periodConfig($periodo) {
             'current_end' => "ADD_MONTHS(TRUNC(SYSDATE, 'YYYY'), 12)",
             'previous_start' => "ADD_MONTHS(TRUNC(SYSDATE, 'YYYY'), -12)",
             'previous_end' => "TRUNC(SYSDATE, 'YYYY')",
+        ];
+    }
+
+    if ($periodo === 'rango' && $desde && $hasta) {
+        $start = "TO_DATE('$desde', 'YYYY-MM-DD')";
+        $end = "TO_DATE('$hasta', 'YYYY-MM-DD') + 1";
+        $days = max(1, (int)round((strtotime($hasta) - strtotime($desde)) / 86400) + 1);
+        return [
+            'label' => 'Rango personalizado',
+            'current_start' => $start,
+            'current_end' => $end,
+            'previous_start' => "TO_DATE('$desde', 'YYYY-MM-DD') - $days",
+            'previous_end' => $start,
         ];
     }
 
@@ -107,10 +140,17 @@ function dateWhere($alias, $config) {
 
 try {
     $periodo = strtolower(trim($_GET['periodo'] ?? 'mes'));
-    if (!in_array($periodo, ['hoy', 'semana', 'mes', 'anio'], true)) {
+    if (!in_array($periodo, ['hoy', 'semana', 'semana_pasada', 'mes', 'mes_pasado', 'anio', 'rango'], true)) {
         $periodo = 'mes';
     }
-    $config = periodConfig($periodo);
+    $desde = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['desde'] ?? '') ? $_GET['desde'] : null;
+    $hasta = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['hasta'] ?? '') ? $_GET['hasta'] : null;
+    if ($periodo === 'rango' && (!$desde || !$hasta || strtotime($hasta) < strtotime($desde))) {
+        $periodo = 'mes';
+        $desde = null;
+        $hasta = null;
+    }
+    $config = periodConfig($periodo, $desde, $hasta);
     $ventaWhere = dateWhere('V', $config);
     $compraWhere = $config['current_start'] === null
         ? '1 = 1'
