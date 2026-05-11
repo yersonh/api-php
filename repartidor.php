@@ -276,7 +276,7 @@ function handleIniciarEntrega($conn, int $idUsuario): void {
         return;
     }
 
-    // Crear nueva entrega
+    // Crear nueva entrega usando CURRVAL para obtener el ID generado
     $stmtE = oci_parse($conn,
         'INSERT INTO ENTREGA_PEDIDO (ID_ENTREGA, ID_PEDIDO, ID_REPARTIDOR, ESTADO_ENTREGA, FECHA_ESTADO)
          VALUES (SEQ_ENTREGA_PEDIDO.NEXTVAL, :id_pedido, :id_repartidor, :estado, SYSTIMESTAMP)'
@@ -285,20 +285,23 @@ function handleIniciarEntrega($conn, int $idUsuario): void {
     oci_bind_by_name($stmtE, ':id_pedido',     $idPedido);
     oci_bind_by_name($stmtE, ':id_repartidor', $idRepartidor);
     oci_bind_by_name($stmtE, ':estado',        $estado);
-    oci_execute($stmtE);
+    $resE = oci_execute($stmtE);
     oci_free_statement($stmtE);
 
-    // Obtener el ID recién creado
-    $stmtLast = oci_parse($conn,
-        'SELECT ID_ENTREGA FROM ENTREGA_PEDIDO WHERE ID_PEDIDO = :id_pedido AND ID_REPARTIDOR = :id_repartidor'
-    );
-    oci_bind_by_name($stmtLast, ':id_pedido',     $idPedido);
-    oci_bind_by_name($stmtLast, ':id_repartidor', $idRepartidor);
-    oci_execute($stmtLast);
-    $rowLast = oci_fetch_assoc($stmtLast);
-    oci_free_statement($stmtLast);
+    if (!$resE) {
+        $err = oci_error();
+        echo json_encode(['success' => false, 'message' => 'Error al insertar: ' . ($err['message'] ?? 'desconocido')]);
+        return;
+    }
 
-    echo json_encode(['success' => true, 'id_entrega' => (int) $rowLast['ID_ENTREGA'], 'message' => 'Entrega iniciada']);
+    // CURRVAL devuelve el último valor de la secuencia en esta sesión
+    $stmtCurr = oci_parse($conn, 'SELECT SEQ_ENTREGA_PEDIDO.CURRVAL FROM DUAL');
+    oci_execute($stmtCurr);
+    $rowCurr = oci_fetch_assoc($stmtCurr);
+    oci_free_statement($stmtCurr);
+    $idEntregaNuevo = (int) $rowCurr['CURRVAL'];
+
+    echo json_encode(['success' => true, 'id_entrega' => $idEntregaNuevo, 'message' => 'Entrega iniciada']);
 }
 
 // ─── Actualizar estado de entrega ────────────────────────────────────────────
@@ -324,6 +327,11 @@ function handleEstadoEntrega($conn, int $idUsuario): void {
               AND ID_REPARTIDOR = (SELECT ID_REPARTIDOR FROM REPARTIDOR WHERE ID_USUARIO = :id_usuario)";
 
     $stmt = oci_parse($conn, $sql);
+    if (!$stmt) {
+        $err = oci_error($conn);
+        echo json_encode(['success' => false, 'message' => 'SQL inválido: ' . ($err['message'] ?? 'desconocido')]);
+        return;
+    }
     oci_bind_by_name($stmt, ':estado',     $estadoEntrega);
     oci_bind_by_name($stmt, ':notas',      $notas);
     if ($firma !== '') {
@@ -331,13 +339,19 @@ function handleEstadoEntrega($conn, int $idUsuario): void {
     }
     oci_bind_by_name($stmt, ':id_entrega', $idEntrega);
     oci_bind_by_name($stmt, ':id_usuario', $idUsuario);
-    oci_execute($stmt);
+    $res = oci_execute($stmt);
+    if (!$res) {
+        $err = oci_error($stmt);
+        oci_free_statement($stmt);
+        echo json_encode(['success' => false, 'message' => 'Error Oracle: ' . ($err['message'] ?? 'desconocido')]);
+        return;
+    }
     $afectadas = oci_num_rows($stmt);
     oci_free_statement($stmt);
 
     if ($afectadas > 0) {
         echo json_encode(['success' => true, 'message' => 'Estado actualizado']);
     } else {
-        echo json_encode(['success' => false, 'message' => 'No se pudo actualizar']);
+        echo json_encode(['success' => false, 'message' => 'Fila no encontrada: id_entrega=' . $idEntrega]);
     }
 }
