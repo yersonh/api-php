@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 require_once __DIR__ . '/database.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -44,6 +44,44 @@ function fetchAll($conn, $sql) {
 function nextId($conn, $table, $column) {
     $row = fetchAll($conn, "SELECT NVL(MAX($column), 0) + 1 AS NEXT_ID FROM $table");
     return (int)($row[0]['NEXT_ID'] ?? 1);
+}
+
+function ensureInventoryAdjustmentTable($conn) {
+    $exists = fetchAll($conn, "SELECT COUNT(*) AS TOTAL FROM USER_TABLES WHERE TABLE_NAME = 'INVENTARIO_AJUSTE'");
+    if ((int)($exists[0]['TOTAL'] ?? 0) > 0) {
+        return;
+    }
+
+    $sql = "CREATE TABLE INVENTARIO_AJUSTE (
+        ID_AJUSTE NUMBER PRIMARY KEY,
+        ID_PRODUCTO NUMBER NOT NULL,
+        CANTIDAD NUMBER NOT NULL,
+        MOTIVO VARCHAR2(255),
+        CREATED_AT TIMESTAMP DEFAULT SYSTIMESTAMP
+    )";
+    $stmt = oci_parse($conn, $sql);
+    if (!$stmt || !oci_execute($stmt)) {
+        $error = $stmt ? oci_error($stmt) : oci_error($conn);
+        throw new Exception($error['message'] ?? 'No se pudo crear la tabla de ajustes de inventario');
+    }
+    oci_free_statement($stmt);
+}
+
+function currentProductStock($conn, $idProducto) {
+    ensureInventoryAdjustmentTable($conn);
+    $sql = "SELECT
+        NVL((SELECT MAX(I.STOCK_TOTAL) FROM MV_VISTA_INVENTARIO I WHERE I.ID_PRODUCTO = :id_producto), 0)
+        + NVL((SELECT SUM(A.CANTIDAD) FROM INVENTARIO_AJUSTE A WHERE A.ID_PRODUCTO = :id_producto), 0) AS STOCK
+    FROM DUAL";
+    $stmt = oci_parse($conn, $sql);
+    bind($stmt, ':id_producto', $idProducto);
+    if (!$stmt || !oci_execute($stmt)) {
+        $error = $stmt ? oci_error($stmt) : oci_error($conn);
+        throw new Exception($error['message'] ?? 'No se pudo consultar el stock actual');
+    }
+    $row = oci_fetch_assoc($stmt);
+    oci_free_statement($stmt);
+    return (int)($row['STOCK'] ?? 0);
 }
 
 function bind($stmt, $name, &$value) {
@@ -103,12 +141,17 @@ ORDER BY NOMBRE");
     }
 
     if ($method === 'GET' && $tipo === 'productos') {
+        ensureInventoryAdjustmentTable($conn);
         $rows = fetchAll($conn, "SELECT P.ID_PRODUCTO, P.NOMBRE, P.CODIGO, P.DESCRIPCION, P.PRECIO,
 P.ESTADO, P.ID_CATEGORIA,
 (SELECT C.NOMBRE FROM CATEGORIA_PRODUCTO C WHERE C.ID_CATEGORIA = P.ID_CATEGORIA) AS CATEGORIA,
 NVL((SELECT MAX(I.STOCK_TOTAL)
     FROM MV_VISTA_INVENTARIO I
-    WHERE I.ID_PRODUCTO = P.ID_PRODUCTO), 0) AS STOCK
+    WHERE I.ID_PRODUCTO = P.ID_PRODUCTO), 0)
++
+NVL((SELECT SUM(A.CANTIDAD)
+    FROM INVENTARIO_AJUSTE A
+    WHERE A.ID_PRODUCTO = P.ID_PRODUCTO), 0) AS STOCK
 FROM PRODUCTO P
 ORDER BY P.NOMBRE");
         oci_close($conn);
@@ -170,6 +213,40 @@ WHERE ID_PROVEEDOR = :id");
         oci_commit($conn);
         oci_close($conn);
         respond(true, 'Proveedor guardado');
+    }
+
+    if ($tipo === 'inventario' && $accion === 'ajustar') {
+        $idProducto = (int)($data['id_producto'] ?? 0);
+        $stockNuevo = (int)($data['stock'] ?? -1);
+        $motivo = trim($data['motivo'] ?? 'Ajuste desde app administradora');
+
+        if ($idProducto <= 0 || $stockNuevo < 0) {
+            respond(false, 'Producto y stock son requeridos', null, 422);
+        }
+
+        ensureInventoryAdjustmentTable($conn);
+        $stockActual = currentProductStock($conn, $idProducto);
+        $diferencia = $stockNuevo - $stockActual;
+
+        if ($diferencia !== 0) {
+            $idAjuste = nextId($conn, 'INVENTARIO_AJUSTE', 'ID_AJUSTE');
+            $stmt = oci_parse($conn, "INSERT INTO INVENTARIO_AJUSTE
+(ID_AJUSTE, ID_PRODUCTO, CANTIDAD, MOTIVO, CREATED_AT)
+VALUES (:id_ajuste, :id_producto, :cantidad, :motivo, SYSTIMESTAMP)");
+            bind($stmt, ':id_ajuste', $idAjuste);
+            bind($stmt, ':id_producto', $idProducto);
+            bind($stmt, ':cantidad', $diferencia);
+            bind($stmt, ':motivo', $motivo);
+            executeStmt($stmt);
+            oci_commit($conn);
+        }
+
+        oci_close($conn);
+        respond(true, 'Inventario ajustado', [
+            'stock_anterior' => $stockActual,
+            'stock_nuevo' => $stockNuevo,
+            'diferencia' => $diferencia,
+        ]);
     }
 
     if ($tipo === 'productos') {

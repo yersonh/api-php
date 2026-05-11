@@ -23,5 +23,6 @@ echo json_encode([
         'POST /registro?tipo=proveedores&accion=actualizar',
         'POST /registro?tipo=productos&accion=crear',
         'POST /registro?tipo=productos&accion=actualizar',
+        'POST /registro?tipo=inventario&accion=ajustar',
     ],
 ], JSON_UNESCAPED_UNICODE);
