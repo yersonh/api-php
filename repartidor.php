@@ -45,6 +45,8 @@ try {
         handlePedidos($conn, $idUsuario);
     } elseif ($method === 'POST' && $accion === 'ubicacion') {
         handleUbicacion($conn, $idUsuario);
+    } elseif ($method === 'POST' && $accion === 'tomar_pedido') {
+        handleTomarPedido($conn, $idUsuario);
     } elseif ($method === 'POST' && $accion === 'estado_entrega') {
         handleEstadoEntrega($conn, $idUsuario);
     } else {
@@ -151,6 +153,67 @@ function handlePedidos($conn, int $idUsuario): void {
     oci_free_statement($stmt);
 
     echo json_encode(['success' => true, 'data' => $pedidos], JSON_UNESCAPED_UNICODE);
+}
+
+// ─── Tomar pedido escaneando QR ─────────────────────────────────────────────
+function handleTomarPedido($conn, int $idUsuario): void {
+    $data     = json_decode(file_get_contents('php://input'), true);
+    $idPedido = (int) ($data['id_pedido'] ?? 0);
+
+    if (!$idPedido) {
+        echo json_encode(['success' => false, 'message' => 'ID de pedido inválido']);
+        return;
+    }
+
+    // Obtener id_repartidor
+    $stmtR = oci_parse($conn, 'SELECT ID_REPARTIDOR FROM REPARTIDOR WHERE ID_USUARIO = :id_usuario');
+    oci_bind_by_name($stmtR, ':id_usuario', $idUsuario);
+    oci_execute($stmtR);
+    $rowR = oci_fetch_assoc($stmtR);
+    oci_free_statement($stmtR);
+
+    if (!$rowR) {
+        echo json_encode(['success' => false, 'message' => 'Repartidor no encontrado']);
+        return;
+    }
+    $idRepartidor = (int) $rowR['ID_REPARTIDOR'];
+
+    // Verificar que el pedido existe y no tiene repartidor asignado
+    $stmtP = oci_parse($conn, 'SELECT ID_PEDIDO, ID_REPARTIDOR FROM PEDIDO WHERE ID_PEDIDO = :id_pedido');
+    oci_bind_by_name($stmtP, ':id_pedido', $idPedido);
+    oci_execute($stmtP);
+    $rowP = oci_fetch_assoc($stmtP);
+    oci_free_statement($stmtP);
+
+    if (!$rowP) {
+        echo json_encode(['success' => false, 'message' => 'Pedido no encontrado']);
+        return;
+    }
+    if ($rowP['ID_REPARTIDOR'] !== null) {
+        echo json_encode(['success' => false, 'message' => 'Este pedido ya tiene un repartidor asignado']);
+        return;
+    }
+
+    // Asignar repartidor al pedido
+    $stmtU = oci_parse($conn, 'UPDATE PEDIDO SET ID_REPARTIDOR = :id_repartidor WHERE ID_PEDIDO = :id_pedido');
+    oci_bind_by_name($stmtU, ':id_repartidor', $idRepartidor);
+    oci_bind_by_name($stmtU, ':id_pedido',     $idPedido);
+    oci_execute($stmtU);
+    oci_free_statement($stmtU);
+
+    // Crear registro en ENTREGA_PEDIDO
+    $stmtE = oci_parse($conn,
+        'INSERT INTO ENTREGA_PEDIDO (ID_ENTREGA, ID_PEDIDO, ID_REPARTIDOR, ESTADO_ENTREGA, FECHA_ESTADO)
+         VALUES (SEQ_ENTREGA_PEDIDO.NEXTVAL, :id_pedido, :id_repartidor, :estado, SYSTIMESTAMP)'
+    );
+    $estadoInicial = 'PENDIENTE';
+    oci_bind_by_name($stmtE, ':id_pedido',     $idPedido);
+    oci_bind_by_name($stmtE, ':id_repartidor', $idRepartidor);
+    oci_bind_by_name($stmtE, ':estado',        $estadoInicial);
+    oci_execute($stmtE);
+    oci_free_statement($stmtE);
+
+    echo json_encode(['success' => true, 'message' => 'Pedido asignado correctamente']);
 }
 
 // ─── Actualizar ubicación del repartidor ─────────────────────────────────────
