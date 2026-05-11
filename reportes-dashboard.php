@@ -171,13 +171,28 @@ AND V.FECHA < {$config['previous_end']}");
     $ventasTotales = (float)($currentRow['TOTAL'] ?? 0);
     $ventasAnteriores = (float)($previousRow['TOTAL'] ?? 0);
 
-    $ventasPorDiaRows = fetchAll($conn, "SELECT TO_CHAR(TRUNC(V.FECHA), 'DD/MM') AS LABEL,
+    if (in_array($periodo, ['semana', 'semana_pasada'], true)) {
+        $ventasPorDiaRows = fetchAll($conn, "WITH DIAS AS (
+    SELECT {$config['current_start']} + LEVEL - 1 AS DIA
+    FROM DUAL
+    CONNECT BY LEVEL <= 7
+)
+SELECT TO_CHAR(D.DIA, 'DD/MM') AS LABEL,
+NVL(SUM(V.TOTAL), 0) AS TOTAL,
+D.DIA AS ORDEN
+FROM DIAS D
+LEFT JOIN VENTA V ON TRUNC(V.FECHA) = D.DIA
+GROUP BY D.DIA, TO_CHAR(D.DIA, 'DD/MM')
+ORDER BY D.DIA");
+    } else {
+        $ventasPorDiaRows = fetchAll($conn, "SELECT TO_CHAR(TRUNC(V.FECHA), 'DD/MM') AS LABEL,
 NVL(SUM(V.TOTAL), 0) AS TOTAL,
 TRUNC(V.FECHA) AS ORDEN
 FROM VENTA V
 WHERE $ventaWhere
 GROUP BY TRUNC(V.FECHA), TO_CHAR(TRUNC(V.FECHA), 'DD/MM')
 ORDER BY ORDEN");
+    }
 
     $ventasPorDia = array_map(function ($row) {
         return [
@@ -207,13 +222,30 @@ WHERE ROWNUM <= 3");
 
     $topClientesRows = fetchAll($conn, "SELECT *
 FROM (
-    SELECT TRIM(PER.NOMBRES || ' ' || PER.APELLIDOS) AS NOMBRE,
+    SELECT COALESCE(
+        NULLIF(TRIM(PER.NOMBRES || ' ' || PER.APELLIDOS), ''),
+        U.USERNAME,
+        CASE
+            WHEN V.ID_CLIENTE IS NOT NULL THEN 'Cliente #' || V.ID_CLIENTE
+            WHEN V.ID_USUARIO IS NOT NULL THEN 'Usuario #' || V.ID_USUARIO
+            ELSE 'Cliente sin identificar'
+        END
+    ) AS NOMBRE,
     COUNT(V.ID_VENTA) AS COMPRAS
     FROM VENTA V
-    INNER JOIN CLIENTE C ON C.ID_CLIENTE = V.ID_CLIENTE
-    INNER JOIN PERSONA PER ON PER.ID_PERSONA = C.ID_PERSONA
+    LEFT JOIN CLIENTE C ON C.ID_CLIENTE = V.ID_CLIENTE
+    LEFT JOIN PERSONA PER ON PER.ID_PERSONA = C.ID_PERSONA
+    LEFT JOIN USUARIO U ON U.ID_USUARIO = V.ID_USUARIO
     WHERE $ventaWhere
-    GROUP BY TRIM(PER.NOMBRES || ' ' || PER.APELLIDOS)
+    GROUP BY COALESCE(
+        NULLIF(TRIM(PER.NOMBRES || ' ' || PER.APELLIDOS), ''),
+        U.USERNAME,
+        CASE
+            WHEN V.ID_CLIENTE IS NOT NULL THEN 'Cliente #' || V.ID_CLIENTE
+            WHEN V.ID_USUARIO IS NOT NULL THEN 'Usuario #' || V.ID_USUARIO
+            ELSE 'Cliente sin identificar'
+        END
+    )
     ORDER BY COUNT(V.ID_VENTA) DESC
 )
 WHERE ROWNUM <= 3");
