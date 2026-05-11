@@ -49,6 +49,8 @@ try {
         handleTomarPedido($conn, $idUsuario);
     } elseif ($method === 'POST' && $accion === 'estado_entrega') {
         handleEstadoEntrega($conn, $idUsuario);
+    } elseif ($method === 'POST' && $accion === 'foto_perfil') {
+        handleFotoPerfil($conn, $idUsuario);
     } elseif ($method === 'POST' && $accion === 'iniciar_entrega') {
         handleIniciarEntrega($conn, $idUsuario);
     } else {
@@ -68,7 +70,7 @@ function handlePerfil($conn, int $idUsuario): void {
                    p.NOMBRES, p.APELLIDOS, p.CORREO, p.TELEFONO,
                    r.TIPO_VEHICULO, r.PLACA_VEHICULO, r.LICENCIA_CONDUCCION,
                    r.CATEGORIA_LICENCIA, r.ZONA_ASIGNADA, r.ESTADO,
-                   r.CALIFICACION, r.LATITUD, r.LONGITUD
+                   r.CALIFICACION, r.LATITUD, r.LONGITUD, r.FOTO_PERFIL
             FROM REPARTIDOR r
             JOIN PERSONA p ON p.ID_PERSONA = r.ID_PERSONA
             WHERE r.ID_USUARIO = :id_usuario";
@@ -103,6 +105,7 @@ function handlePerfil($conn, int $idUsuario): void {
             'calificacion'       => $row['CALIFICACION'] !== null ? (float) $row['CALIFICACION'] : null,
             'latitud'            => $row['LATITUD'] !== null ? (float) $row['LATITUD'] : null,
             'longitud'           => $row['LONGITUD'] !== null ? (float) $row['LONGITUD'] : null,
+            'foto_perfil'        => $row['FOTO_PERFIL'] ?? null,
         ]
     ], JSON_UNESCAPED_UNICODE);
 }
@@ -216,6 +219,31 @@ function handleTomarPedido($conn, int $idUsuario): void {
     oci_free_statement($stmtE);
 
     echo json_encode(['success' => true, 'message' => 'Pedido asignado correctamente']);
+}
+
+// ─── Subir foto de perfil ────────────────────────────────────────────────────
+function handleFotoPerfil($conn, int $idUsuario): void {
+    $data      = json_decode(file_get_contents('php://input'), true);
+    $fotoPerfil = trim($data['foto_perfil'] ?? '');
+
+    if (!$fotoPerfil) {
+        echo json_encode(['success' => false, 'message' => 'Foto vacía']);
+        return;
+    }
+
+    $sql  = "UPDATE REPARTIDOR SET FOTO_PERFIL = :foto WHERE ID_USUARIO = :id_usuario";
+    $stmt = oci_parse($conn, $sql);
+    oci_bind_by_name($stmt, ':foto',       $fotoPerfil, -1, SQLT_CLOB);
+    oci_bind_by_name($stmt, ':id_usuario', $idUsuario);
+    $res = oci_execute($stmt);
+    if (!$res) {
+        $err = oci_error($stmt);
+        oci_free_statement($stmt);
+        echo json_encode(['success' => false, 'message' => $err['message'] ?? 'Error Oracle']);
+        return;
+    }
+    oci_free_statement($stmt);
+    echo json_encode(['success' => true, 'message' => 'Foto actualizada']);
 }
 
 // ─── Actualizar ubicación del repartidor ─────────────────────────────────────
