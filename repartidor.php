@@ -105,7 +105,7 @@ function handlePerfil($conn, int $idUsuario): void {
             'calificacion'       => $row['CALIFICACION'] !== null ? (float) $row['CALIFICACION'] : null,
             'latitud'            => $row['LATITUD'] !== null ? (float) $row['LATITUD'] : null,
             'longitud'           => $row['LONGITUD'] !== null ? (float) $row['LONGITUD'] : null,
-            'foto_perfil'        => $row['FOTO_PERFIL'] ?? null,
+            'foto_perfil'        => isset($row['FOTO_PERFIL']) ? (is_object($row['FOTO_PERFIL']) ? $row['FOTO_PERFIL']->load() : $row['FOTO_PERFIL']) : null,
         ]
     ], JSON_UNESCAPED_UNICODE);
 }
@@ -233,15 +233,20 @@ function handleFotoPerfil($conn, int $idUsuario): void {
 
     $sql  = "UPDATE REPARTIDOR SET FOTO_PERFIL = :foto WHERE ID_USUARIO = :id_usuario";
     $stmt = oci_parse($conn, $sql);
-    oci_bind_by_name($stmt, ':foto',       $fotoPerfil, -1, SQLT_CLOB);
+    $clob = oci_new_descriptor($conn, OCI_D_LOB);
+    oci_bind_by_name($stmt, ':foto',       $clob,      -1, OCI_B_CLOB);
     oci_bind_by_name($stmt, ':id_usuario', $idUsuario);
-    $res = oci_execute($stmt);
+    $res = oci_execute($stmt, OCI_NO_AUTO_COMMIT);
     if (!$res) {
         $err = oci_error($stmt);
         oci_free_statement($stmt);
+        $clob->free();
         echo json_encode(['success' => false, 'message' => $err['message'] ?? 'Error Oracle']);
         return;
     }
+    $clob->save($fotoPerfil);
+    oci_commit($conn);
+    $clob->free();
     oci_free_statement($stmt);
     echo json_encode(['success' => true, 'message' => 'Foto actualizada']);
 }
@@ -360,20 +365,28 @@ function handleEstadoEntrega($conn, int $idUsuario): void {
         echo json_encode(['success' => false, 'message' => 'SQL inválido: ' . ($err['message'] ?? 'desconocido')]);
         return;
     }
+    $firmaClob = null;
     oci_bind_by_name($stmt, ':estado',     $estadoEntrega);
     oci_bind_by_name($stmt, ':notas',      $notas);
     if ($firma !== '') {
-        oci_bind_by_name($stmt, ':firma', $firma, -1, SQLT_CLOB);
+        $firmaClob = oci_new_descriptor($conn, OCI_D_LOB);
+        oci_bind_by_name($stmt, ':firma', $firmaClob, -1, OCI_B_CLOB);
     }
     oci_bind_by_name($stmt, ':id_entrega', $idEntrega);
     oci_bind_by_name($stmt, ':id_usuario', $idUsuario);
-    $res = oci_execute($stmt);
+    $res = oci_execute($stmt, OCI_NO_AUTO_COMMIT);
     if (!$res) {
         $err = oci_error($stmt);
         oci_free_statement($stmt);
+        if ($firmaClob) $firmaClob->free();
         echo json_encode(['success' => false, 'message' => 'Error Oracle: ' . ($err['message'] ?? 'desconocido')]);
         return;
     }
+    if ($firmaClob) {
+        $firmaClob->save($firma);
+        $firmaClob->free();
+    }
+    oci_commit($conn);
     $afectadas = oci_num_rows($stmt);
     oci_free_statement($stmt);
 
