@@ -47,6 +47,11 @@ if ($uri === '/repartidor' && ($method === 'GET' || $method === 'POST')) {
     exit;
 }
 
+if ($uri === '/usuarios' && ($method === 'GET' || $method === 'POST')) {
+    require __DIR__ . '/usuarios.php';
+    exit;
+}
+
 if ($uri === '/') {
     echo json_encode([
         "exito" => true,
