@@ -67,6 +67,14 @@ function textValue($value) {
     return $value;
 }
 
+function refreshInventoryView($conn) {
+    $stmt = @oci_parse($conn, "BEGIN DBMS_MVIEW.REFRESH('ADMIN.MV_VISTA_INVENTARIO'); END;");
+    if ($stmt) {
+        @oci_execute($stmt);
+        @oci_free_statement($stmt);
+    }
+}
+
 try {
     $conn = getConnection();
     $method = $_SERVER['REQUEST_METHOD'];
@@ -179,9 +187,15 @@ WHERE ID_PROVEEDOR = :id");
         $precio = (float)($data['precio'] ?? 0);
         $estado = trim($data['estado'] ?? 'ACTIVO');
         $idCategoria = (int)($data['id_categoria'] ?? 0);
+        $stockInicial = max(0, (int)($data['stock_inicial'] ?? 0));
+        $idProveedor = (int)($data['id_proveedor'] ?? 0);
 
         if ($nombre === '' || $idCategoria <= 0) {
             respond(false, 'Nombre y categoria son requeridos', null, 422);
+        }
+
+        if ($accion === 'crear' && $idProveedor <= 0) {
+            respond(false, 'Selecciona el proveedor del stock inicial', null, 422);
         }
 
         if ($accion === 'crear') {
@@ -206,7 +220,49 @@ WHERE ID_PRODUCTO = :id");
         bind($stmt, ':estado', $estado);
         bind($stmt, ':id_categoria', $idCategoria);
         executeStmt($stmt);
+
+        if ($accion === 'crear' && $stockInicial > 0) {
+            $idCompra = nextId($conn, 'COMPRA_PROVEEDOR', 'ID_COMPRA');
+            $compraStmt = oci_parse($conn, "INSERT INTO COMPRA_PROVEEDOR
+(ID_COMPRA, ID_PROVEEDOR, FECHA, CREATED_AT, UPDATED_AT)
+VALUES (:id_compra, :id_proveedor, SYSTIMESTAMP, SYSTIMESTAMP, SYSTIMESTAMP)");
+            bind($compraStmt, ':id_compra', $idCompra);
+            bind($compraStmt, ':id_proveedor', $idProveedor);
+            executeStmt($compraStmt);
+
+            $idDetalle = nextId($conn, 'DETALLE_COMPRA_PROVEEDOR', 'ID_DETALLE');
+            $detalleStmt = oci_parse($conn, "INSERT INTO DETALLE_COMPRA_PROVEEDOR
+(ID_DETALLE, ID_COMPRA, ID_PRODUCTO, CANTIDAD, PRECIO, CREATED_AT, UPDATED_AT)
+VALUES (:id_detalle, :id_compra, :id_producto, :cantidad, :precio, SYSTIMESTAMP, SYSTIMESTAMP)");
+            bind($detalleStmt, ':id_detalle', $idDetalle);
+            bind($detalleStmt, ':id_compra', $idCompra);
+            bind($detalleStmt, ':id_producto', $id);
+            bind($detalleStmt, ':cantidad', $stockInicial);
+            bind($detalleStmt, ':precio', $precio);
+            executeStmt($detalleStmt);
+
+            $idProveedorProducto = nextId($conn, 'PROVEEDOR_PRODUCTO', 'ID_PROVEEDOR_PRODUCTO');
+            $relacionStmt = oci_parse($conn, "INSERT INTO PROVEEDOR_PRODUCTO
+(ID_PROVEEDOR_PRODUCTO, ID_PROVEEDOR, ID_PRODUCTO, PRECIO_COMPRA, CREATED_AT, UPDATED_AT)
+SELECT :id_proveedor_producto, :id_proveedor, :id_producto, :precio, SYSTIMESTAMP, SYSTIMESTAMP
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM PROVEEDOR_PRODUCTO
+    WHERE ID_PROVEEDOR = :id_proveedor_check AND ID_PRODUCTO = :id_producto_check
+)");
+            bind($relacionStmt, ':id_proveedor_producto', $idProveedorProducto);
+            bind($relacionStmt, ':id_proveedor', $idProveedor);
+            bind($relacionStmt, ':id_producto', $id);
+            bind($relacionStmt, ':precio', $precio);
+            bind($relacionStmt, ':id_proveedor_check', $idProveedor);
+            bind($relacionStmt, ':id_producto_check', $id);
+            executeStmt($relacionStmt);
+        }
+
         oci_commit($conn);
+        if ($accion === 'crear' && $stockInicial > 0) {
+            refreshInventoryView($conn);
+        }
         oci_close($conn);
         respond(true, 'Producto guardado');
     }
