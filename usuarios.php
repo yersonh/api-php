@@ -28,18 +28,18 @@ function respondUsuarios($success, $message, $data = null, $status = 200) {
 
 function parseEstadoUsuario($value) {
     if (is_bool($value)) {
-        return $value ? 'ACTIVO' : 'INACTIVO';
+        return $value ? 'Activo' : 'Inactivo';
     }
 
     if (is_numeric($value)) {
-        return ((int)$value) === 1 ? 'ACTIVO' : 'INACTIVO';
+        return ((int)$value) === 1 ? 'Activo' : 'Inactivo';
     }
 
     $text = strtoupper(trim((string)$value));
     if (in_array($text, ['1', 'TRUE', 'ACTIVO', 'SI', 'YES'], true)) {
-        return 'ACTIVO';
+        return 'Activo';
     }
-    return 'INACTIVO';
+    return 'Inactivo';
 }
 
 function listarUsuariosAdministrables($conn) {
