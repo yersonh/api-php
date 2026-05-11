@@ -314,10 +314,11 @@ function handleEstadoEntrega($conn, int $idUsuario): void {
         return;
     }
 
+    $firmaSet = $firma !== '' ? ", FIRMA_RECEPTOR = :firma" : "";
     $sql = "UPDATE ENTREGA_PEDIDO
             SET ESTADO_ENTREGA = :estado,
-                NOTAS          = :notas,
-                FIRMA_RECEPTOR = :firma,
+                NOTAS          = :notas
+                $firmaSet,
                 FECHA_ESTADO   = SYSTIMESTAMP
             WHERE ID_ENTREGA = :id_entrega
               AND ID_REPARTIDOR = (SELECT ID_REPARTIDOR FROM REPARTIDOR WHERE ID_USUARIO = :id_usuario)";
@@ -325,7 +326,9 @@ function handleEstadoEntrega($conn, int $idUsuario): void {
     $stmt = oci_parse($conn, $sql);
     oci_bind_by_name($stmt, ':estado',     $estadoEntrega);
     oci_bind_by_name($stmt, ':notas',      $notas);
-    oci_bind_by_name($stmt, ':firma',      $firma,   -1, SQLT_CLOB);
+    if ($firma !== '') {
+        oci_bind_by_name($stmt, ':firma', $firma, -1, SQLT_CLOB);
+    }
     oci_bind_by_name($stmt, ':id_entrega', $idEntrega);
     oci_bind_by_name($stmt, ':id_usuario', $idUsuario);
     oci_execute($stmt);
