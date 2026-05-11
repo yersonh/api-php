@@ -286,13 +286,13 @@ function handleIniciarEntrega($conn, int $idUsuario): void {
     oci_bind_by_name($stmtE, ':id_repartidor', $idRepartidor);
     oci_bind_by_name($stmtE, ':estado',        $estado);
     $resE = oci_execute($stmtE);
-    oci_free_statement($stmtE);
-
     if (!$resE) {
-        $err = oci_error();
-        echo json_encode(['success' => false, 'message' => 'Error al insertar: ' . ($err['message'] ?? 'desconocido')]);
+        $err = oci_error($stmtE); // pasar handle ANTES de liberar
+        oci_free_statement($stmtE);
+        echo json_encode(['success' => false, 'message' => 'ORA: ' . ($err['message'] ?? json_encode($err))]);
         return;
     }
+    oci_free_statement($stmtE);
 
     // CURRVAL devuelve el último valor de la secuencia en esta sesión
     $stmtCurr = oci_parse($conn, 'SELECT SEQ_ENTREGA_PEDIDO.CURRVAL FROM DUAL');
