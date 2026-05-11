@@ -67,23 +67,16 @@ function textValue($value) {
     return $value;
 }
 
-function refreshInventoryView($conn) {
-    $stmt = @oci_parse($conn, "BEGIN DBMS_MVIEW.REFRESH('ADMIN.MV_VISTA_INVENTARIO'); END;");
-    if ($stmt) {
-        @oci_execute($stmt);
-        @oci_free_statement($stmt);
-    }
-}
 
 function boolEstado($value) {
     if (is_bool($value)) {
-        return $value ? 1 : 0;
+        return $value ? 'true' : 'false';
     }
     if (is_numeric($value)) {
-        return ((int)$value) === 1 ? 1 : 0;
+        return ((int)$value) === 1 ? 'true' : 'false';
     }
     $text = strtoupper(trim((string)$value));
-    return in_array($text, ['1', 'TRUE', 'ACTIVO', 'SI', 'YES'], true) ? 1 : 0;
+    return in_array($text, ['1', 'TRUE', 'ACTIVO', 'SI', 'YES'], true) ? 'true' : 'false';
 }
 
 try {
@@ -198,16 +191,11 @@ WHERE ID_PROVEEDOR = :id");
         $precio = (float)($data['precio'] ?? 0);
         $estado = boolEstado($data['estado'] ?? true);
         $idCategoria = (int)($data['id_categoria'] ?? 0);
-        $stockInicial = max(0, (int)($data['stock_inicial'] ?? 0));
-        $idProveedor = (int)($data['id_proveedor'] ?? 0);
 
         if ($nombre === '' || $idCategoria <= 0) {
             respond(false, 'Nombre y categoria son requeridos', null, 422);
         }
 
-        if ($accion === 'crear' && $idProveedor <= 0) {
-            respond(false, 'Selecciona el proveedor del stock inicial', null, 422);
-        }
 
         if ($accion === 'crear') {
             $id = nextId($conn, 'PRODUCTO', 'ID_PRODUCTO');
@@ -232,48 +220,120 @@ WHERE ID_PRODUCTO = :id");
         bind($stmt, ':id_categoria', $idCategoria);
         executeStmt($stmt);
 
-        if ($accion === 'crear' && $stockInicial > 0) {
-            $idCompra = nextId($conn, 'COMPRA_PROVEEDOR', 'ID_COMPRA');
-            $compraStmt = oci_parse($conn, "INSERT INTO COMPRA_PROVEEDOR
-(ID_COMPRA, ID_PROVEEDOR, FECHA, CREATED_AT, UPDATED_AT)
-VALUES (:id_compra, :id_proveedor, SYSTIMESTAMP, SYSTIMESTAMP, SYSTIMESTAMP)");
-            bind($compraStmt, ':id_compra', $idCompra);
-            bind($compraStmt, ':id_proveedor', $idProveedor);
-            executeStmt($compraStmt);
+        if ($accion === 'crear' && isset($data['referencia']) && is_array($data['referencia'])) {
+            $referencia = $data['referencia'];
+            $idReferencia = nextId($conn, 'REFERENCIA_PRODUCTO', 'ID_REFERENCIA');
+            $numeroReferencia = trim($referencia['numero_referencia'] ?? '');
+            $marcaReferencia = trim($referencia['marca'] ?? '');
+            $fabricanteReferencia = trim($referencia['fabricante'] ?? '');
+            $especificaciones = trim($referencia['especificaciones'] ?? '');
+            $estadoReferencia = 'true';
 
-            $idDetalle = nextId($conn, 'DETALLE_COMPRA_PROVEEDOR', 'ID_DETALLE');
-            $detalleStmt = oci_parse($conn, "INSERT INTO DETALLE_COMPRA_PROVEEDOR
-(ID_DETALLE, ID_COMPRA, ID_PRODUCTO, CANTIDAD, PRECIO, CREATED_AT, UPDATED_AT)
-VALUES (:id_detalle, :id_compra, :id_producto, :cantidad, :precio, SYSTIMESTAMP, SYSTIMESTAMP)");
-            bind($detalleStmt, ':id_detalle', $idDetalle);
-            bind($detalleStmt, ':id_compra', $idCompra);
-            bind($detalleStmt, ':id_producto', $id);
-            bind($detalleStmt, ':cantidad', $stockInicial);
-            bind($detalleStmt, ':precio', $precio);
-            executeStmt($detalleStmt);
+            if ($numeroReferencia === '' || $marcaReferencia === '' || $fabricanteReferencia === '') {
+                respond(false, 'Referencia, marca y fabricante son requeridos', null, 422);
+            }
 
-            $idProveedorProducto = nextId($conn, 'PROVEEDOR_PRODUCTO', 'ID_PROVEEDOR_PRODUCTO');
-            $relacionStmt = oci_parse($conn, "INSERT INTO PROVEEDOR_PRODUCTO
-(ID_PROVEEDOR_PRODUCTO, ID_PROVEEDOR, ID_PRODUCTO, PRECIO_COMPRA, CREATED_AT, UPDATED_AT)
-SELECT :id_proveedor_producto, :id_proveedor, :id_producto, :precio, SYSTIMESTAMP, SYSTIMESTAMP
-FROM DUAL
-WHERE NOT EXISTS (
-    SELECT 1 FROM PROVEEDOR_PRODUCTO
-    WHERE ID_PROVEEDOR = :id_proveedor_check AND ID_PRODUCTO = :id_producto_check
-)");
-            bind($relacionStmt, ':id_proveedor_producto', $idProveedorProducto);
-            bind($relacionStmt, ':id_proveedor', $idProveedor);
-            bind($relacionStmt, ':id_producto', $id);
-            bind($relacionStmt, ':precio', $precio);
-            bind($relacionStmt, ':id_proveedor_check', $idProveedor);
-            bind($relacionStmt, ':id_producto_check', $id);
-            executeStmt($relacionStmt);
+            $refStmt = oci_parse($conn, "INSERT INTO REFERENCIA_PRODUCTO
+(ID_REFERENCIA, ID_PRODUCTO, NUMERO_REFERENCIA, MARCA, FABRICANTE, ESPECIFICACIONES, ESTADO, CREATED_AT, UPDATED_AT)
+VALUES (:id_referencia, :id_producto, :numero_referencia, :marca, :fabricante, :especificaciones, :estado, SYSTIMESTAMP, SYSTIMESTAMP)");
+            bind($refStmt, ':id_referencia', $idReferencia);
+            bind($refStmt, ':id_producto', $id);
+            bind($refStmt, ':numero_referencia', $numeroReferencia);
+            bind($refStmt, ':marca', $marcaReferencia);
+            bind($refStmt, ':fabricante', $fabricanteReferencia);
+            bind($refStmt, ':especificaciones', $especificaciones);
+            bind($refStmt, ':estado', $estadoReferencia);
+            executeStmt($refStmt);
+
+            $compatibilidades = $data['compatibilidades'] ?? [];
+            if (!is_array($compatibilidades) || count($compatibilidades) === 0) {
+                respond(false, 'Agrega al menos una compatibilidad', null, 422);
+            }
+
+            foreach ($compatibilidades as $compatibilidad) {
+                if (!is_array($compatibilidad)) {
+                    continue;
+                }
+                $tipoCompatibilidad = strtolower(trim($compatibilidad['tipo'] ?? 'vehiculo'));
+                $stock = max(0, (int)($compatibilidad['stock'] ?? 0));
+                $anoInicio = (int)($compatibilidad['ano_inicio'] ?? 0);
+                $anoFin = (int)($compatibilidad['ano_fin'] ?? 0);
+                $notas = trim($compatibilidad['notas'] ?? '');
+
+                if ($anoInicio <= 0 || $anoFin < $anoInicio) {
+                    respond(false, 'Rango de años invalido en compatibilidad', null, 422);
+                }
+
+                if ($tipoCompatibilidad === 'maquinaria') {
+                    $idCompatibilidad = nextId($conn, 'COMPATIBILIDAD_MAQUINARIA', 'ID_COMPATIBILIDAD_MAQ');
+                    $tipoMaquinaria = trim($compatibilidad['tipo_maquinaria'] ?? '');
+                    $marcaMaquinaria = trim($compatibilidad['marca_maquinaria'] ?? '');
+                    $modeloMaquinaria = trim($compatibilidad['modelo_maquinaria'] ?? '');
+                    $componente = trim($compatibilidad['componente'] ?? '');
+
+                    if ($tipoMaquinaria === '' || $marcaMaquinaria === '' || $modeloMaquinaria === '') {
+                        respond(false, 'Completa la compatibilidad de maquinaria', null, 422);
+                    }
+
+                    $compatStmt = oci_parse($conn, "INSERT INTO COMPATIBILIDAD_MAQUINARIA
+(ID_COMPATIBILIDAD_MAQ, ID_REFERENCIA, MARCA_MAQUINARIA, MODELO_MAQUINARIA, TIPO_MAQUINARIA, COMPONENTE, ANO_INICIO, ANO_FIN, STOCK_P, NOTAS, CREATED_AT, UPDATED_AT)
+VALUES (:id_compatibilidad, :id_referencia, :marca_maquinaria, :modelo_maquinaria, :tipo_maquinaria, :componente, :ano_inicio, :ano_fin, :stock, :notas, SYSTIMESTAMP, SYSTIMESTAMP)");
+                    bind($compatStmt, ':id_compatibilidad', $idCompatibilidad);
+                    bind($compatStmt, ':id_referencia', $idReferencia);
+                    bind($compatStmt, ':marca_maquinaria', $marcaMaquinaria);
+                    bind($compatStmt, ':modelo_maquinaria', $modeloMaquinaria);
+                    bind($compatStmt, ':tipo_maquinaria', $tipoMaquinaria);
+                    bind($compatStmt, ':componente', $componente);
+                    bind($compatStmt, ':ano_inicio', $anoInicio);
+                    bind($compatStmt, ':ano_fin', $anoFin);
+                    bind($compatStmt, ':stock', $stock);
+                    bind($compatStmt, ':notas', $notas);
+                    executeStmt($compatStmt);
+                } else {
+                    $idCompatibilidad = nextId($conn, 'COMPATIBILIDAD_VEHICULO', 'ID_COMPATIBILIDAD');
+                    $marcaVehiculo = trim($compatibilidad['marca_vehiculo'] ?? '');
+                    $modeloVehiculo = trim($compatibilidad['modelo_vehiculo'] ?? '');
+                    $motor = trim($compatibilidad['motor'] ?? '');
+                    $transmision = trim($compatibilidad['transmision'] ?? '');
+
+                    if ($marcaVehiculo === '' || $modeloVehiculo === '') {
+                        respond(false, 'Completa la compatibilidad de vehiculo', null, 422);
+                    }
+
+                    $compatStmt = oci_parse($conn, "INSERT INTO COMPATIBILIDAD_VEHICULO
+(ID_COMPATIBILIDAD, ID_REFERENCIA, MARCA_VEHICULO, MODELO_VEHICULO, ANO_INICIO, ANO_FIN, MOTOR, TRANSMISION, STOCK_P, NOTAS, CREATED_AT, UPDATED_AT)
+VALUES (:id_compatibilidad, :id_referencia, :marca_vehiculo, :modelo_vehiculo, :ano_inicio, :ano_fin, :motor, :transmision, :stock, :notas, SYSTIMESTAMP, SYSTIMESTAMP)");
+                    bind($compatStmt, ':id_compatibilidad', $idCompatibilidad);
+                    bind($compatStmt, ':id_referencia', $idReferencia);
+                    bind($compatStmt, ':marca_vehiculo', $marcaVehiculo);
+                    bind($compatStmt, ':modelo_vehiculo', $modeloVehiculo);
+                    bind($compatStmt, ':ano_inicio', $anoInicio);
+                    bind($compatStmt, ':ano_fin', $anoFin);
+                    bind($compatStmt, ':motor', $motor);
+                    bind($compatStmt, ':transmision', $transmision);
+                    bind($compatStmt, ':stock', $stock);
+                    bind($compatStmt, ':notas', $notas);
+                    executeStmt($compatStmt);
+                }
+            }
+        }
+
+        $imagenUrl = trim($data['imagen_url'] ?? '');
+        if ($accion === 'crear' && $imagenUrl !== '') {
+            $idImagen = nextId($conn, 'PRODUCTO_IMAGEN', 'ID_IMAGEN');
+            $ordenImagen = 1;
+            $imgStmt = oci_parse($conn, "INSERT INTO PRODUCTO_IMAGEN
+(ID_IMAGEN, ID_PRODUCTO, URL, ORDEN, CREATED_AT)
+VALUES (:id_imagen, :id_producto, :url, :orden, SYSTIMESTAMP)");
+            bind($imgStmt, ':id_imagen', $idImagen);
+            bind($imgStmt, ':id_producto', $id);
+            bind($imgStmt, ':url', $imagenUrl);
+            bind($imgStmt, ':orden', $ordenImagen);
+            executeStmt($imgStmt);
         }
 
         oci_commit($conn);
-        if ($accion === 'crear' && $stockInicial > 0) {
-            refreshInventoryView($conn);
-        }
+
         oci_close($conn);
         respond(true, 'Producto guardado');
     }
