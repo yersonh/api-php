@@ -1,5 +1,6 @@
 ﻿<?php
 require_once __DIR__ . '/database.php';
+require_once __DIR__ . '/token_helper.php';
 
 header("Content-Type: application/json");
 header("Access-Control-Allow-Origin: *");
@@ -87,14 +88,17 @@ WHERE LOWER(USERNAME) = LOWER(:username)";
         );
         if ($validPassword) {
             error_log('LOGIN exitoso para username: ' . $username);
+            $idUsuario = (int) $row['ID_USUARIO'];
+            $token     = generarToken($idUsuario);
             echo json_encode([
                 'success' => true,
                 'message' => 'Login correcto',
-                'user' => [
-                    'id_usuario' => $row['ID_USUARIO'],
-                    'id_tipo' => $row['ID_TIPO'] ?? null,
-                    'username' => $row['USERNAME'],
-                    'estado' => $row['ESTADO']
+                'token'   => $token,
+                'user'    => [
+                    'id_usuario' => $idUsuario,
+                    'id_tipo'    => $row['ID_TIPO'] ?? null,
+                    'username'   => $row['USERNAME'],
+                    'estado'     => $row['ESTADO']
                 ]
             ], JSON_UNESCAPED_UNICODE);
         } else {

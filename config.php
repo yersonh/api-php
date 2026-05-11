@@ -9,3 +9,5 @@ define('WALLET_PATH', getenv('WALLET_PATH') ?: '/tmp/wallet');
 
 putenv("TNS_ADMIN=" . WALLET_PATH);
 $_ENV['TNS_ADMIN'] = WALLET_PATH;
+
+define('TOKEN_SECRET', getenv('TOKEN_SECRET') ?: 'naylex_secret_key_2024_gbd');
