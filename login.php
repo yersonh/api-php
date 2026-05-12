@@ -87,6 +87,17 @@ WHERE LOWER(USERNAME) = LOWER(:username)";
             ($validPassword ? 'TRUE' : 'FALSE')
         );
         if ($validPassword) {
+            $estadoUsuario = strtoupper(trim((string)($row['ESTADO'] ?? '')));
+            if ($estadoUsuario !== 'ACTIVO') {
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'Usuario inactivo. Contacta al Super Admin.'
+                ], JSON_UNESCAPED_UNICODE);
+                oci_free_statement($stmt);
+                oci_close($conn);
+                exit;
+            }
+
             error_log('LOGIN exitoso para username: ' . $username);
             $idUsuario = (int) $row['ID_USUARIO'];
             $token     = generarToken($idUsuario);
